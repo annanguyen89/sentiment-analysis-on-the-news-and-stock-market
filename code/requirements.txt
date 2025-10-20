@@ -1,0 +1,31 @@
+# --- Core data stack ---
+pandas>=2.0,<3.0
+numpy>=1.23,<3.0
+pyarrow>=12.0  # for .parquet IO
+
+# --- HTTP / environment ---
+requests>=2.28,<3.0
+python-dotenv>=1.0
+
+# --- Market data ---
+yfinance>=0.2.40
+
+# --- NLP: tokenization, LDA, sentiment ---
+nltk>=3.8          # VADER comes from nltk.sentiment
+gensim>=4.3        # LDA
+scikit-learn>=1.2  # text prep, vectorizers, coherence helpers (optional)
+spacy==3.7.4
+en-core-web-sm==3.7.1 ; sys_platform != "linux" or platform_machine != "aarch64"
+
+# --- Finance econometrics / inference ---
+statsmodels>=0.14  # OLS + Newey-West (HAC)
+
+# --- Deep-learning sentiment (FinBERT) ---
+transformers>=4.41
+torch>=2.1
+sentencepiece>=0.1.99  # for some Transformer tokenizers
+
+# --- Utils / plots (optional but handy) ---
+tqdm>=4.65
+matplotlib>=3.7
+seaborn>=0.12
