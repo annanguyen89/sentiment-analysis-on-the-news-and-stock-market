@@ -189,6 +189,5 @@ def main():
     # 4) Run HAC-OLS for XLK
     _ = run_hac_ols(model_df, PILOT_SECTOR)
 
-
 if __name__ == "__main__":
     main()

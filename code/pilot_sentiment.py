@@ -6,16 +6,13 @@ from pathlib import Path
 import pandas as pd
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# Default data directory: one level up from this file, then "data"
 DATA_DIR = (Path(__file__).resolve().parent.parent / "data").resolve()
 
 def resolve_in_path(name_or_path: str) -> Path:
-    """If user passes a bare filename, read it from DATA_DIR; else use as-is."""
     p = Path(name_or_path)
     return (DATA_DIR / p) if not p.is_absolute() and p.parent == Path('.') else p
 
 def resolve_out_path(name_or_path: str) -> Path:
-    """If user passes a bare filename, write it to DATA_DIR; else use as-is."""
     p = Path(name_or_path)
     if not p.is_absolute() and p.parent == Path('.'):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
