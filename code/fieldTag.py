@@ -3,32 +3,21 @@ from collections import defaultdict
 from pathlib import Path
 import pandas as pd
 
-# ------------------------- Helpers (safe & robust) -------------------------
-
 def safe_text(x):
-    """Return a string for regex use; coerce NaN/None/non-str to ''."""
     return x if isinstance(x, str) else ""
 
 def any_match(patterns, text):
-    """
-    patterns: list[str or compiled]; text may be NaN/None/str.
-    Returns True if any pattern matches (case-insensitive).
-    """
     txt = safe_text(text)
     for p in patterns:
-        if hasattr(p, "search"):           # compiled regex
+        if hasattr(p, "search"):          
             if p.search(txt):
                 return True
-        else:                               # pattern is a string
+        else:                         
             if re.search(p, txt, flags=re.IGNORECASE):
                 return True
     return False
 
 def proximity_boost(text, term_a, term_b, window=8):
-    """
-    Very rough token-window proximity; tolerant of non-strings.
-    +1 if term_a and term_b appear within `window` tokens, else 0.
-    """
     txt = safe_text(text).lower()
     if not txt:
         return 0
@@ -44,17 +33,11 @@ def proximity_boost(text, term_a, term_b, window=8):
     return 1 if any(abs(i - j) <= window for i in pos_a for j in pos_b) else 0
 
 def pattern_head_token(pat_str):
-    """
-    Extract a simple 'head token' from a regex like r'\\bgpu(s)?\\b' -> 'gpu'.
-    Falls back to '' if nothing reasonable can be extracted.
-    """
     s = re.sub(r"\\b", "", pat_str)
-    s = re.sub(r"\([^)]*\)\??", "", s)   # drop (s)?-style groups
+    s = re.sub(r"\([^)]*\)\??", "", s)   
     s = re.sub(r"[^A-Za-z0-9]+", " ", s).strip()
-    # take first token if multiple
     return s.split()[0].lower() if s else ""
 
-# ------------------------- Optional spaCy NER ------------------------------
 
 USE_SPACY = True
 nlp = None
@@ -76,15 +59,10 @@ def extract_orgs(text):
     doc = nlp(txt)
     return [ent.text for ent in doc.ents if ent.label_ in ("ORG", "PRODUCT")]
 
-# ------------------------- I/O paths ------------------------------
 
 DATA = Path(__file__).resolve().parents[1] / "data"
 IN_CSV  = DATA / "nyt_articles_slim.csv"
 OUT_CSV = DATA / "nyt_articles_fields_smart.csv"
-
-# ------------------------- Dictionaries & Patterns -------------------------
-
-# Company alias → sector (expand as needed)
 ALIAS_TO_SECTOR = {
     # Semis/AI
     "nvidia": "Semis/AI", "nvda": "Semis/AI",
@@ -109,7 +87,6 @@ ALIAS_TO_SECTOR = {
     "goldman sachs": "Banks", "goldman": "Banks", "gs": "Banks",
 }
 
-# Context keywords per sector (strings — we will compile)
 CONTEXT_HINTS = {
     "Semis/AI": [r"\bchip(s)?\b", r"\bsemiconductor(s)?\b", r"\bgpu(s)?\b", r"\bfab(s)?\b"],
     "EV/Auto": [r"\belectric vehicle(s)?\b", r"\bev(s)?\b", r"\bbattery\b", r"\bcharging\b"],
@@ -117,31 +94,24 @@ CONTEXT_HINTS = {
     "Biotech": [r"\bclinical trial(s)?\b", r"\bfda\b", r"\bphase [123]\b", r"\bdrug(s)?\b"],
     "Banks": [r"\bloan(s)?\b", r"\bdeposit(s)?\b", r"\bnet interest\b", r"\binvestment banking\b"],
 }
-# Compile context patterns for speed/safety
 CONTEXT_HINTS = {
     k: [re.compile(p, re.IGNORECASE) for p in v]
     for k, v in CONTEXT_HINTS.items()
 }
 
-# Negative filters to avoid homonym false positives
 NEGATIVE_PATTERNS = [
-    # (must, avoid) — if both match, drop the 'must' word
     (re.compile(r"\barm\b", re.IGNORECASE),
      re.compile(r"arm of (the )?chair|disarm|arm(y|ed)", re.IGNORECASE)),
 ]
 
-# Precompute a representative plain token for proximity checks per sector
 SECTOR_HEAD_TOKENS = {
     sec: pattern_head_token(p.pattern) for sec, pats in CONTEXT_HINTS.items() for p in pats[:1]
 }
-# If a sector lacks a clean token, fall back to a simple default
 SECTOR_HEAD_TOKENS.setdefault("Semis/AI", "chip")
 SECTOR_HEAD_TOKENS.setdefault("EV/Auto", "vehicle")
 SECTOR_HEAD_TOKENS.setdefault("Mega-cap Tech", "cloud")
 SECTOR_HEAD_TOKENS.setdefault("Biotech", "drug")
 SECTOR_HEAD_TOKENS.setdefault("Banks", "loan")
-
-# ------------------------- Scoring logic ------------------------------
 
 def score_article(headline, abstract):
     headline = safe_text(headline)
@@ -150,34 +120,24 @@ def score_article(headline, abstract):
     if not text:
         return {}
 
-    # Negative filters: if both 'must' and 'avoid' hit, remove the 'must' token
     for must, avoid in NEGATIVE_PATTERNS:
         if must.search(text) and avoid.search(text):
             text = must.sub("", text)
 
-    # (A) NER/alias sector votes
     votes = defaultdict(float)
-    orgs = extract_orgs(text)  # [] if spaCy unavailable
+    orgs = extract_orgs(text) 
     lc_text = text.lower()
 
-    # Alias hits from raw text (captures tickers/abbreviations)
     for alias, sector in ALIAS_TO_SECTOR.items():
         if re.search(rf"\b{re.escape(alias)}\b", lc_text):
             votes[sector] += 1.0
-
-    # Add spaCy orgs (if available)
     for ent in orgs:
         a = ent.lower().strip()
         if a in ALIAS_TO_SECTOR:
             votes[ALIAS_TO_SECTOR[a]] += 1.0
-
-    # (B) context boosts: headline > body, and simple proximity between firm alias & a key sector token
     for sector, pats in CONTEXT_HINTS.items():
-        # headline boost if any context hint appears in the headline
         if any(p.search(headline) for p in pats):
             votes[sector] += 0.5
-
-        # proximity: firm alias near a representative sector token
         head_tok = SECTOR_HEAD_TOKENS.get(sector, "")
         if head_tok:
             for alias, sec in ALIAS_TO_SECTOR.items():
@@ -185,18 +145,14 @@ def score_article(headline, abstract):
                     continue
                 if proximity_boost(text, alias, head_tok, window=8):
                     votes[sector] += 0.25
-
-    # (C) fallback: if no company found, allow generic hints to assign weakly
     if not votes:
         for sector, pats in CONTEXT_HINTS.items():
             if any(p.search(text) for p in pats):
                 votes[sector] += 0.5
 
-    # Keep continuous scores; drop zeros
+
     labels = {sec: float(sc) for sec, sc in votes.items() if sc > 0}
     return labels
-
-# ------------------------- Main ------------------------------
 
 def main():
     if not IN_CSV.exists():
